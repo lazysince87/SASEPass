@@ -1,0 +1,37 @@
+/* -------------------------------------------------------
+   SASEPass - Custom Styles
+   Most styling handled via Tailwind utility classes.
+   This file provides supplemental overrides.
+   ------------------------------------------------------- */
+
+/* Smooth scrolling for the activity log */
+#activity-log {
+    scrollbar-width: thin;
+    scrollbar-color: #374151 transparent;
+}
+#activity-log::-webkit-scrollbar {
+    width: 6px;
+}
+#activity-log::-webkit-scrollbar-track {
+    background: transparent;
+}
+#activity-log::-webkit-scrollbar-thumb {
+    background-color: #374151;
+    border-radius: 3px;
+}
+
+/* QR reader override — html5-qrcode injects inline styles;
+   these ensure the video feed fills the container cleanly. */
+#qr-reader video {
+    border-radius: 0.5rem;
+    object-fit: cover;
+}
+#qr-reader img {
+    display: none !important;
+}
+
+/* High-contrast select for mobile */
+select option {
+    background-color: #1f2937;
+    color: #f3f4f6;
+}

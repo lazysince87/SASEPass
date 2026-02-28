@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}SASEPass - {{ event_name }}{% endblock %}
+
+{% block body %}
+<div class="min-h-screen flex flex-col">
+    <!-- Top Bar -->
+    <header class="sticky top-0 z-50 bg-gray-900/80 backdrop-blur-lg border-b border-gray-800">
+        <div class="max-w-4xl mx-auto flex items-center justify-between px-4 py-3">
+            <a href="{{ url_for('home') }}"
+                class="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                Dashboard
+            </a>
+            <a href="{{ url_for('logout') }}"
+                class="text-sm text-red-400 hover:text-red-300 font-medium transition">Sign Out</a>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-4xl mx-auto w-full px-4 py-6 space-y-6">
+        <h2 class="text-2xl font-bold text-white">{{ event_name }}</h2>
+
+        <!-- Stats Bar -->
+        <div class="grid grid-cols-2 gap-3">
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+                <p class="text-3xl font-bold text-brand-400" id="stat-here">{{ here }}</p>
+                <p class="text-xs text-gray-500 mt-1 uppercase tracking-wider">Checked In / <span id="stat-total">{{
+                        total }}</span></p>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+                <p class="text-3xl font-bold text-emerald-400" id="stat-event">{{ event_count }}</p>
+                <p class="text-xs text-gray-500 mt-1 uppercase tracking-wider">This Event</p>
+            </div>
+        </div>
+
+        <!-- QR Scanner -->
+        <section class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <h3 class="text-base font-semibold text-gray-200 mb-4">Scan QR Code</h3>
+            <div id="qr-reader" class="w-full rounded-lg overflow-hidden bg-black" style="min-height:280px;"></div>
+            <div id="scan-result" class="mt-3 hidden">
+                <div id="scan-result-inner" class="px-4 py-3 rounded-lg text-sm font-medium"></div>
+            </div>
+        </section>
+
+        <!-- Manual Selection -->
+        <section class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <h3 class="text-base font-semibold text-gray-200 mb-4">Manual Selection</h3>
+            <div class="space-y-3">
+                <input id="manual-search" type="text" placeholder="Filter by name..."
+                    class="w-full px-4 py-2.5 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition" />
+                <select id="manual-select"
+                    class="w-full px-4 py-2.5 rounded-lg bg-gray-800 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-brand-500 transition">
+                    <option value="">-- Select a hacker --</option>
+                </select>
+                <button id="manual-submit"
+                    class="w-full py-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold transition active:scale-[0.98]">
+                    Log Attendance
+                </button>
+            </div>
+            <div id="manual-result" class="mt-3 hidden">
+                <div id="manual-result-inner" class="px-4 py-3 rounded-lg text-sm font-medium"></div>
+            </div>
+        </section>
+
+        <!-- Admin: Add Hacker -->
+        {% if session.get('is_admin') %}
+        <section class="bg-gray-900 border border-yellow-800/40 rounded-xl p-5">
+            <h3 class="text-base font-semibold text-yellow-400 mb-4">Admin: Add Hacker</h3>
+            <div class="space-y-3">
+                <input id="add-name" type="text" placeholder="Full Name"
+                    class="w-full px-4 py-2.5 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 transition" />
+                <input id="add-email" type="email" placeholder="Email"
+                    class="w-full px-4 py-2.5 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 transition" />
+                <button id="add-hacker-btn"
+                    class="w-full py-2.5 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-white font-semibold transition active:scale-[0.98]">
+                    Add and Email QR Code
+                </button>
+            </div>
+            <div id="add-result" class="mt-3 hidden">
+                <div id="add-result-inner" class="px-4 py-3 rounded-lg text-sm font-medium"></div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Recent Activity -->
+        <section class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <h3 class="text-base font-semibold text-gray-200 mb-4">Recent Activity</h3>
+            <div id="activity-log" class="space-y-1.5 max-h-72 overflow-y-auto">
+                {% if checked_in %}
+                {% for entry in checked_in %}
+                <div class="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800/60 text-sm group">
+                    <div class="flex flex-col">
+                        <span class="text-gray-200">{{ entry.name }}</span>
+                        <span class="text-gray-500 text-xs">{{ entry.created_at }}</span>
+                    </div>
+                    {% if session.get('is_admin') %}
+                    <button onclick="removeHackerFromActivity('{{ entry.hacker_id }}', '{{ event_name }}')"
+                        class="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition px-2 py-1 bg-red-900/40 rounded-md">
+                        Remove
+                    </button>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="text-gray-500 text-sm py-4 text-center">No activity yet.</p>
+                {% endif %}
+            </div>
+        </section>
+    </main>
+
+    <footer class="text-center py-4 text-xs text-gray-600 border-t border-gray-800">SASEPass</footer>
+
+</div>
+
+<meta name="sasepass-event" content="{{ event_name }}">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{{ url_for('static', filename='scanner.js') }}"></script>
+<meta name="sasepass-is-admin" content="{{ 'true' if session.get('is_admin') else 'false' }}">
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        window.SASEPASS_EVENT = document.querySelector('meta[name="sasepass-event"]').content;
+        window.IS_ADMIN = document.querySelector('meta[name="sasepass-is-admin"]').content === 'true';
+        initScanner(window.SASEPASS_EVENT);
+    });
+
+</script>
+{% endblock %}
