@@ -11,22 +11,41 @@ function initScanner(eventName) {
     const html5Qr = new Html5Qrcode("qr-reader");
     let scanning = false;
     let cooldown = false;
+    let currentFacingMode = "environment"; // "environment" = back, "user" = front
 
-    html5Qr
-        .start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            function onScan(decodedText) {
-                if (cooldown) return;
-                cooldown = true;
-                logAttendance(decodedText, eventName, "scan-result", "scan-result-inner");
-                setTimeout(function () { cooldown = false; }, 2500);
-            }
-        )
-        .then(function () { scanning = true; })
-        .catch(function (err) {
-            console.warn("Camera not available:", err);
+    function startCamera() {
+        html5Qr
+            .start(
+                { facingMode: currentFacingMode },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                function onScan(decodedText) {
+                    if (cooldown) return;
+                    cooldown = true;
+                    logAttendance(decodedText, eventName, "scan-result", "scan-result-inner");
+                    setTimeout(function () { cooldown = false; }, 2500);
+                }
+            )
+            .then(function () { scanning = true; })
+            .catch(function (err) {
+                console.warn("Camera not available:", err);
+            });
+    }
+
+    startCamera();
+
+    // ── Flip Camera ────────────────────────────────────
+    var flipBtn = document.getElementById("flip-camera-btn");
+    if (flipBtn) {
+        flipBtn.addEventListener("click", function () {
+            html5Qr.stop().then(function () {
+                scanning = false;
+                currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+                startCamera();
+            }).catch(function (err) {
+                console.warn("Error stopping camera:", err);
+            });
         });
+    }
 
     // ── Load Eligible Users ─────────────────────────────
     var allUsers = [];
