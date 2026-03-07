@@ -722,6 +722,48 @@ def bulk_import_send_batch():
 
 
 # ---------------------------------------------------------------------------
+# API: Log Manual Attendance (Email entry)
+# ---------------------------------------------------------------------------
+@app.route("/log_manual_attendance", methods=["POST"])
+def log_manual_attendance():
+    data = request.json
+    email = data.get("email", "").strip().lower()
+    event = data.get("event", "")
+
+    if not email or not event:
+        return jsonify({"status": "error", "message": "Missing email or event"}), 400
+
+    if not is_valid_email(email):
+        return jsonify({"status": "error", "message": "Invalid email format"}), 400
+
+    # Check for duplicate attendance
+    dup_check = (
+        supabase.table("workshop_attendees")
+        .select("id")
+        .eq("email", email)
+        .eq("event", event)
+        .execute()
+    )
+
+    if dup_check.data:
+        return jsonify({
+            "status": "warning",
+            "message": f"{email} is already registered for {event}.",
+        })
+
+    # Insert attendance record
+    try:
+        supabase.table("workshop_attendees").insert({
+            "email": email,
+            "event": event,
+        }).execute()
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
+
+    return jsonify({"status": "success", "message": f"Registered: {email}"})
+
+
+# ---------------------------------------------------------------------------
 # API: Log Workshop Attendance (Encrypted QR)
 # ---------------------------------------------------------------------------
 @app.route("/log_workshop_attendance", methods=["POST"])

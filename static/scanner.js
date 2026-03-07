@@ -89,52 +89,37 @@ function initScanner(eventName) {
         });
     }
 
-    // ── Load Eligible Users ─────────────────────────────
-    var allUsers = [];
+    // ── Manual Email Entry ─────────────────────────────
+    var manualEmailInput = document.getElementById("manual-email");
 
-    fetch("/get_eligible_users/" + encodeURIComponent(eventName))
-        .then(function (r) { return r.json(); })
-        .then(function (users) {
-            allUsers = users;
-            populateSelect(users);
-        });
-
-    function populateSelect(users) {
-        var sel = document.getElementById("manual-select");
-        sel.innerHTML = '<option value="">-- Select a hacker --</option>';
-        users.forEach(function (u) {
-            var opt = document.createElement("option");
-            opt.value = u.guest_id;
-            opt.textContent = u.display_name;
-            sel.appendChild(opt);
-        });
-    }
-
-    // ── Manual Search Filter (debounced) ────────────────
-    var searchInput = document.getElementById("manual-search");
-    var debounceTimer = null;
-
-    searchInput.addEventListener("input", function () {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(function () {
-            var q = searchInput.value.trim().toLowerCase();
-            if (!q) {
-                populateSelect(allUsers);
-                return;
-            }
-            var filtered = allUsers.filter(function (u) {
-                return u.display_name.toLowerCase().indexOf(q) !== -1;
-            });
-            populateSelect(filtered);
-        }, 300);
-    });
-
-    // ── Manual Submit ───────────────────────────────────
     document.getElementById("manual-submit").addEventListener("click", function () {
-        var gid = document.getElementById("manual-select").value;
-        if (!gid) return;
-        logAttendance(gid, eventName, "manual-result", "manual-result-inner");
+        var email = manualEmailInput.value.trim().toLowerCase();
+        if (!email) return;
+        logManualAttendance(email, eventName);
     });
+
+    manualEmailInput.addEventListener("keypress", function (e) {
+        if (e.key === "Enter") {
+            var email = manualEmailInput.value.trim().toLowerCase();
+            if (!email) return;
+            logManualAttendance(email, eventName);
+        }
+    });
+
+    function logManualAttendance(email, event) {
+        fetch("/log_manual_attendance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email, event: event }),
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                showResult("manual-result", "manual-result-inner", data);
+                if (data.status === "success") {
+                    manualEmailInput.value = "";
+                }
+            });
+    }
 
     // ── Admin: Add Hacker ───────────────────────────────
     var addBtn = document.getElementById("add-hacker-btn");
@@ -199,13 +184,13 @@ function initScanner(eventName) {
                     log.innerHTML = '<p class="text-gray-500 text-sm py-4 text-center">No hacker activity yet.</p>';
                 }
 
-                // Refresh workshop activity log
+                // Refresh attendance log
                 var workshopLog = document.getElementById("workshop-log");
                 if (d.workshop_activity && d.workshop_activity.length) {
                     workshopLog.innerHTML = "";
                     d.workshop_activity.forEach(function (entry) {
                         var div = document.createElement("div");
-                        div.className = "flex items-center justify-between px-3 py-2 rounded-lg bg-purple-900/20 text-sm group";
+                        div.className = "flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800/60 text-sm group";
                         var leftCol = '<div class="flex flex-col">' +
                             '<span class="text-gray-200">' + escapeHtml(entry.email) + "</span>" +
                             '<span class="text-gray-500 text-xs">' + escapeHtml(entry.created_at || "") + "</span>" +
@@ -218,7 +203,7 @@ function initScanner(eventName) {
                         workshopLog.appendChild(div);
                     });
                 } else {
-                    workshopLog.innerHTML = '<p class="text-gray-500 text-sm py-4 text-center">No workshop attendance yet.</p>';
+                    workshopLog.innerHTML = '<p class="text-gray-500 text-sm py-4 text-center">No attendance yet.</p>';
                 }
             });
     }, 5000);
