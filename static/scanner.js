@@ -59,7 +59,15 @@ function initScanner(eventName) {
                     setTimeout(function () { cooldown = false; }, 2500);
                 }
             )
-            .then(function () { scanning = true; })
+            .then(function () {
+                scanning = true;
+                // iOS Safari fix: ensure video has playsinline attribute
+                var video = document.querySelector("#qr-reader video");
+                if (video) {
+                    video.setAttribute("playsinline", "true");
+                    video.setAttribute("webkit-playsinline", "true");
+                }
+            })
             .catch(function (err) {
                 console.warn("Camera not available:", err);
             });
@@ -234,22 +242,61 @@ function showResult(wrapperId, innerId, data) {
     wrapper.classList.remove("hidden");
 
     // Reset classes
-    inner.className = "px-4 py-3 rounded-lg text-sm font-medium";
+    inner.className = "px-6 py-4 rounded-xl text-lg font-bold text-center";
 
     if (data.status === "success") {
-        inner.classList.add("bg-emerald-900/40", "border", "border-emerald-700", "text-emerald-300");
+        inner.classList.add("bg-emerald-600", "text-white", "shadow-lg", "shadow-emerald-500/50");
+        // Screen flash
+        flashScreen("emerald");
+        // Vibrate on mobile
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     } else if (data.status === "warning") {
-        inner.classList.add("bg-yellow-900/40", "border", "border-yellow-700", "text-yellow-300");
+        inner.classList.add("bg-yellow-600", "text-white", "shadow-lg", "shadow-yellow-500/50");
+        flashScreen("yellow");
+        if (navigator.vibrate) navigator.vibrate(200);
     } else {
-        inner.classList.add("bg-red-900/40", "border", "border-red-700", "text-red-300");
+        inner.classList.add("bg-red-600", "text-white", "shadow-lg", "shadow-red-500/50");
+        flashScreen("red");
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
     }
 
-    inner.textContent = data.message;
+    // Add icon + message
+    var icon = "";
+    if (data.status === "success") {
+        icon = '<svg class="inline w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>';
+    } else if (data.status === "warning") {
+        icon = '<svg class="inline w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>';
+    } else {
+        icon = '<svg class="inline w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path></svg>';
+    }
+    inner.innerHTML = icon + escapeHtml(data.message);
 
     // Auto-hide after 4 seconds
     setTimeout(function () {
         wrapper.classList.add("hidden");
     }, 4000);
+}
+
+function flashScreen(color) {
+    var flash = document.createElement("div");
+    flash.className = "fixed inset-0 pointer-events-none z-50 transition-opacity duration-300";
+
+    if (color === "emerald") {
+        flash.style.backgroundColor = "rgba(16, 185, 129, 0.4)";
+    } else if (color === "yellow") {
+        flash.style.backgroundColor = "rgba(234, 179, 8, 0.4)";
+    } else {
+        flash.style.backgroundColor = "rgba(239, 68, 68, 0.4)";
+    }
+
+    document.body.appendChild(flash);
+
+    setTimeout(function () {
+        flash.style.opacity = "0";
+        setTimeout(function () {
+            flash.remove();
+        }, 300);
+    }, 200);
 }
 
 function escapeHtml(str) {

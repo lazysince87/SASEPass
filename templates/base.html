@@ -3,7 +3,9 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>{% block title %}SASEPass{% endblock %}</title>
     <meta name="description" content="SASEPass - SASEHacks Check-in System" />
     <link rel="icon" href="{{ get_public_image_url('homeMascot.png') }}" type="image/x-icon" />
@@ -42,6 +44,15 @@
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
+        }
+        /* iOS Safari camera fix */
+        #qr-reader video {
+            width: 100% !important;
+            height: auto !important;
+            object-fit: cover;
+        }
+        #qr-reader {
+            overflow: hidden;
         }
     </style>
 </head>
