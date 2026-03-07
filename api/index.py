@@ -1,8 +1,10 @@
 import os
+import re
+import csv
 import uuid
 import smtplib
 import qrcode
-from io import BytesIO
+from io import BytesIO, StringIO
 from datetime import datetime
 from email.message import EmailMessage
 
@@ -12,6 +14,7 @@ from flask import (
 )
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from cryptography.fernet import Fernet, InvalidToken
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -35,6 +38,28 @@ EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "")
 SUPABASE_BUCKET_URL = os.getenv("SUPABASE_BUCKET_URL", f"{SUPABASE_URL}/storage/v1/object/public/sasepass")
 DELETE_EVENT_PASSWORD = os.getenv("DELETE_EVENT_PASSWORD", "")
+FERNET_KEY = os.getenv("FERNET_KEY", "")
+cipher = Fernet(FERNET_KEY.encode()) if FERNET_KEY else None
+
+
+def encrypt_email(email: str) -> str:
+    """Encrypt an email address using Fernet symmetric encryption."""
+    if not cipher:
+        raise ValueError("FERNET_KEY not configured")
+    return cipher.encrypt(email.encode()).decode()
+
+
+def decrypt_email(token: str) -> str:
+    """Decrypt a Fernet token back to the original email address."""
+    if not cipher:
+        raise ValueError("FERNET_KEY not configured")
+    return cipher.decrypt(token.encode()).decode()
+
+
+def is_valid_email(email: str) -> bool:
+    """Basic email validation."""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
 
 @app.context_processor
 def inject_image_url():
@@ -65,14 +90,18 @@ def login():
         email_input = request.form.get("email", "").strip().lower()
         pass_input = request.form.get("password", "").strip()
 
-        # Check against the organizers table
-        result = (
-            supabase.table("organizers")
-            .select("*")
-            .eq("email", email_input)
-            .execute()
-        )
-        user_row = result.data[0] if result.data else None
+        # Check against the organizers table (if it exists)
+        user_row = None
+        try:
+            result = (
+                supabase.table("organizers")
+                .select("*")
+                .eq("email", email_input)
+                .execute()
+            )
+            user_row = result.data[0] if result.data else None
+        except Exception:
+            pass  # Table may not exist, continue to admin check
 
         if user_row and user_row["password"] == pass_input:
             session["user"] = email_input
@@ -136,7 +165,7 @@ def event_detail(event_name):
     checked_in_ids = list({row["hacker_id"] for row in checkin_res.data})
     total_here = len(checked_in_ids)
 
-    # Attendance for this specific event
+    # Hacker attendance for this specific event (UUID-based QR)
     event_att_res = (
         supabase.table("attendance")
         .select("*")
@@ -147,13 +176,26 @@ def event_detail(event_name):
     checked_in_list = event_att_res.data
     event_count = len({row["hacker_id"] for row in checked_in_list})
 
+    # Workshop attendance for this event (Fernet-encrypted QR)
+    workshop_att_res = (
+        supabase.table("workshop_attendees")
+        .select("*")
+        .eq("event", event_name)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    workshop_attendees_list = workshop_att_res.data
+    workshop_count = len({row["email"] for row in workshop_attendees_list})
+
     return render_template(
         "event_detail.html",
         event_name=event_name,
         checked_in=checked_in_list,
+        workshop_attendees=workshop_attendees_list,
         here=total_here,
         total=total_accepted,
         event_count=event_count,
+        workshop_count=workshop_count,
     )
 
 
@@ -178,6 +220,7 @@ def get_stats(event_name):
     )
     total_here = len({row["hacker_id"] for row in checkin_res.data})
 
+    # Hacker attendance (UUID-based QR)
     event_att_res = (
         supabase.table("attendance")
         .select("*")
@@ -188,11 +231,24 @@ def get_stats(event_name):
     )
     event_count = len({row["hacker_id"] for row in event_att_res.data})
 
+    # Workshop attendance (Fernet-encrypted QR)
+    workshop_att_res = (
+        supabase.table("workshop_attendees")
+        .select("*")
+        .eq("event", event_name)
+        .order("created_at", desc=True)
+        .limit(200)
+        .execute()
+    )
+    workshop_count = len({row["email"] for row in workshop_att_res.data})
+
     return jsonify({
         "here": total_here,
         "total": total_accepted,
         "event_count": event_count,
+        "workshop_count": workshop_count,
         "recent_activity": event_att_res.data,
+        "workshop_activity": workshop_att_res.data,
     })
 
 
@@ -324,6 +380,25 @@ def remove_attendance():
 
 
 # ---------------------------------------------------------------------------
+# API: Remove Workshop Attendance (Admin only)
+# ---------------------------------------------------------------------------
+@app.route("/remove_workshop_attendance", methods=["POST"])
+def remove_workshop_attendance():
+    if not session.get("is_admin"):
+        return jsonify({"status": "error", "message": "Unauthorized: Admin access required"}), 403
+
+    data = request.json
+    email = data.get("email")
+    event = data.get("event")
+
+    supabase.table("workshop_attendees").delete().eq(
+        "email", email
+    ).eq("event", event).execute()
+
+    return jsonify({"status": "success", "message": "Workshop attendance removed by Admin"})
+
+
+# ---------------------------------------------------------------------------
 # API: Add Hacker + Email QR Code (Admin only)
 # ---------------------------------------------------------------------------
 @app.route("/add_hacker", methods=["POST"])
@@ -360,14 +435,21 @@ def add_hacker():
     if EMAIL_ADDRESS and EMAIL_APP_PASSWORD:
         try:
             msg = EmailMessage()
-            msg["Subject"] = "Your SASEPass Check-in QR Code"
-            msg["From"] = f"SASEPass <{EMAIL_ADDRESS}>"
+            msg["Subject"] = "SASEHacks - Your Check-In QR Code"
+            msg["From"] = f"Vincent Lin <{EMAIL_ADDRESS}>"
             msg["To"] = email
             msg.set_content(
-                f"Hi {name},\n\n"
-                "You have been registered for SASEHacks. "
-                "Please use the attached QR code for venue check-in.\n\n"
-                "-- SASEPass Team"
+                "Hello!\n\n"
+                "Attached is your QR code for SASEHacks.\n\n"
+                "How to use your QR code:\n"
+                "- Show it at check-in to register for the hackathon\n"
+                "- Keep it handy - it will also be scanned at workshops and events throughout the weekend\n\n"
+                "Before the event, please:\n"
+                "- Read the Hacker Guide: https://www.notion.so/SASEHacks-2026-Hacker-Guide-3199fa3e113580e993caf4e3832d7aa8\n"
+                "- Join Devpost (required for submission): https://sasehacks.devpost.com/\n\n"
+                "See you soon!\n"
+                "Vincent Lin\n"
+                "SASEHacks Website Lead"
             )
             msg.add_attachment(
                 img_io.read(),
@@ -477,6 +559,215 @@ def search_hackers():
             .execute()
         )
     return jsonify(result.data)
+
+
+# ---------------------------------------------------------------------------
+# Bulk Import Page (Admin only)
+# ---------------------------------------------------------------------------
+@app.route("/bulk_import")
+def bulk_import():
+    if not session.get("is_admin"):
+        return redirect(url_for("home"))
+
+    # Get events for dropdown
+    result = supabase.table("events").select("event_name").execute()
+    events = [row["event_name"] for row in result.data]
+
+    return render_template("bulk_import.html", events=events)
+
+
+# ---------------------------------------------------------------------------
+# API: Validate CSV for Bulk Import (Admin only)
+# ---------------------------------------------------------------------------
+@app.route("/api/bulk_import/validate", methods=["POST"])
+def bulk_import_validate():
+    if not session.get("is_admin"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    if "file" not in request.files:
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+
+    file = request.files["file"]
+    if not file.filename or not file.filename.endswith(".csv"):
+        return jsonify({"status": "error", "message": "Please upload a CSV file"}), 400
+
+    try:
+        content = file.read().decode("utf-8")
+        reader = csv.reader(StringIO(content))
+
+        valid_emails = []
+        invalid_entries = []
+        seen = set()
+
+        for row_num, row in enumerate(reader, start=1):
+            if not row:
+                continue
+
+            email = row[0].strip().lower()
+
+            # Skip header row if it looks like a header
+            if row_num == 1 and email in ("email", "emails", "e-mail"):
+                continue
+
+            if not email:
+                continue
+
+            if email in seen:
+                invalid_entries.append({"row": row_num, "value": email, "reason": "Duplicate"})
+                continue
+
+            seen.add(email)
+
+            if is_valid_email(email):
+                valid_emails.append(email)
+            else:
+                invalid_entries.append({"row": row_num, "value": email, "reason": "Invalid email format"})
+
+        return jsonify({
+            "status": "success",
+            "valid": valid_emails,
+            "invalid": invalid_entries,
+            "total_valid": len(valid_emails),
+            "total_invalid": len(invalid_entries),
+        })
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Error parsing CSV: {str(e)}"}), 400
+
+
+# ---------------------------------------------------------------------------
+# API: Send Batch of Encrypted QR Codes (Admin only)
+# ---------------------------------------------------------------------------
+@app.route("/api/bulk_import/send_batch", methods=["POST"])
+def bulk_import_send_batch():
+    if not session.get("is_admin"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    if not cipher:
+        return jsonify({"status": "error", "message": "FERNET_KEY not configured"}), 500
+
+    if not EMAIL_ADDRESS or not EMAIL_APP_PASSWORD:
+        return jsonify({"status": "error", "message": "Email credentials not configured"}), 500
+
+    data = request.json
+    emails = data.get("emails", [])
+    event_name = data.get("event_name", "Workshop")
+
+    if not emails:
+        return jsonify({"status": "error", "message": "No emails provided"}), 400
+
+    if len(emails) > 15:
+        return jsonify({"status": "error", "message": "Batch size exceeds limit of 15"}), 400
+
+    results = {"success": [], "failed": []}
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(EMAIL_ADDRESS, EMAIL_APP_PASSWORD)
+
+            for email in emails:
+                try:
+                    # Encrypt email into QR data
+                    encrypted_data = encrypt_email(email)
+
+                    # Generate QR code
+                    qr = qrcode.make(encrypted_data)
+                    img_io = BytesIO()
+                    qr.save(img_io, "PNG")
+                    img_io.seek(0)
+
+                    # Send email
+                    msg = EmailMessage()
+                    msg["Subject"] = "SASEHacks - Your Check-In QR Code"
+                    msg["From"] = f"Vincent Lin <{EMAIL_ADDRESS}>"
+                    msg["To"] = email
+                    msg.set_content(
+                        "Hello!\n\n"
+                        "Attached is your QR code for SASEHacks.\n\n"
+                        "How to use your QR code:\n"
+                        "- Show it at check-in to register for the hackathon\n"
+                        "- Keep it handy - it will also be scanned at workshops and events throughout the weekend\n\n"
+                        "Before the event, please:\n"
+                        "- Read the Hacker Guide: https://www.notion.so/SASEHacks-2026-Hacker-Guide-3199fa3e113580e993caf4e3832d7aa8\n"
+                        "- Join Devpost (required for submission): https://sasehacks.devpost.com/\n\n"
+                        "See you soon!\n"
+                        "Vincent Lin\n"
+                        "SASEHacks Website Lead"
+                    )
+                    msg.add_attachment(
+                        img_io.read(),
+                        maintype="image",
+                        subtype="png",
+                        filename=f"SASEPass_QR.png",
+                    )
+                    smtp.send_message(msg)
+                    results["success"].append(email)
+
+                except Exception as e:
+                    results["failed"].append({"email": email, "error": str(e)})
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"SMTP connection error: {str(e)}",
+            "results": results,
+        }), 500
+
+    return jsonify({
+        "status": "success",
+        "results": results,
+        "success_count": len(results["success"]),
+        "failed_count": len(results["failed"]),
+    })
+
+
+# ---------------------------------------------------------------------------
+# API: Log Workshop Attendance (Encrypted QR)
+# ---------------------------------------------------------------------------
+@app.route("/log_workshop_attendance", methods=["POST"])
+def log_workshop_attendance():
+    data = request.json
+    qr_data = data.get("qr_data", "")
+    event = data.get("event", "")
+
+    if not qr_data or not event:
+        return jsonify({"status": "error", "message": "Missing QR data or event"}), 400
+
+    if not cipher:
+        return jsonify({"status": "error", "message": "Encryption not configured"}), 500
+
+    try:
+        email = decrypt_email(qr_data)
+    except InvalidToken:
+        return jsonify({"status": "error", "message": "Invalid QR Code"}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Decryption error: {str(e)}"}), 400
+
+    # Check for duplicate attendance
+    dup_check = (
+        supabase.table("workshop_attendees")
+        .select("id")
+        .eq("email", email)
+        .eq("event", event)
+        .execute()
+    )
+
+    if dup_check.data:
+        return jsonify({
+            "status": "warning",
+            "message": f"{email} is already registered for {event}.",
+        })
+
+    # Insert attendance record
+    try:
+        supabase.table("workshop_attendees").insert({
+            "email": email,
+            "event": event,
+        }).execute()
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
+
+    return jsonify({"status": "success", "message": f"Registered: {email}"})
 
 
 # ---------------------------------------------------------------------------

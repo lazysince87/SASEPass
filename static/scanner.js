@@ -3,6 +3,31 @@
    ------------------------------------------------------- */
 
 /**
+ * Detect QR code type based on content format.
+ */
+function isUUID(str) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+function isFernetToken(str) {
+    // Fernet tokens start with 'gAAAAA' and are base64-encoded, typically 100+ chars
+    return str.startsWith('gAAAAA') && str.length > 100;
+}
+
+/**
+ * Log workshop attendance for encrypted QR codes.
+ */
+function logWorkshopAttendance(qrData, event, wrapperId, innerId) {
+    fetch("/log_workshop_attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qr_data: qrData, event: event }),
+    })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { showResult(wrapperId, innerId, data); });
+}
+
+/**
  * Initialise the QR scanner, manual selection, admin tools,
  * and live‑polling for the given event.
  */
@@ -21,7 +46,16 @@ function initScanner(eventName) {
                 function onScan(decodedText) {
                     if (cooldown) return;
                     cooldown = true;
-                    logAttendance(decodedText, eventName, "scan-result", "scan-result-inner");
+
+                    // Detect QR type and route accordingly
+                    if (isFernetToken(decodedText)) {
+                        // Encrypted workshop QR code
+                        logWorkshopAttendance(decodedText, eventName, "scan-result", "scan-result-inner");
+                    } else {
+                        // Standard UUID-based hacker QR code
+                        logAttendance(decodedText, eventName, "scan-result", "scan-result-inner");
+                    }
+
                     setTimeout(function () { cooldown = false; }, 2500);
                 }
             )
@@ -133,8 +167,9 @@ function initScanner(eventName) {
                 document.getElementById("stat-here").textContent = d.here;
                 document.getElementById("stat-total").textContent = d.total;
                 document.getElementById("stat-event").textContent = d.event_count;
+                document.getElementById("stat-workshop").textContent = d.workshop_count;
 
-                // Refresh activity log
+                // Refresh hacker activity log
                 var log = document.getElementById("activity-log");
                 if (d.recent_activity && d.recent_activity.length) {
                     log.innerHTML = "";
@@ -152,6 +187,30 @@ function initScanner(eventName) {
                         div.innerHTML = leftCol + rightCol;
                         log.appendChild(div);
                     });
+                } else {
+                    log.innerHTML = '<p class="text-gray-500 text-sm py-4 text-center">No hacker activity yet.</p>';
+                }
+
+                // Refresh workshop activity log
+                var workshopLog = document.getElementById("workshop-log");
+                if (d.workshop_activity && d.workshop_activity.length) {
+                    workshopLog.innerHTML = "";
+                    d.workshop_activity.forEach(function (entry) {
+                        var div = document.createElement("div");
+                        div.className = "flex items-center justify-between px-3 py-2 rounded-lg bg-purple-900/20 text-sm group";
+                        var leftCol = '<div class="flex flex-col">' +
+                            '<span class="text-gray-200">' + escapeHtml(entry.email) + "</span>" +
+                            '<span class="text-gray-500 text-xs">' + escapeHtml(entry.created_at || "") + "</span>" +
+                            '</div>';
+                        var rightCol = '';
+                        if (window.IS_ADMIN) {
+                            rightCol = '<button onclick="removeWorkshopAttendee(\'' + escapeHtml(entry.email) + '\', \'' + escapeHtml(eventName) + '\')" class="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition px-2 py-1 bg-red-900/40 rounded-md">Remove</button>';
+                        }
+                        div.innerHTML = leftCol + rightCol;
+                        workshopLog.appendChild(div);
+                    });
+                } else {
+                    workshopLog.innerHTML = '<p class="text-gray-500 text-sm py-4 text-center">No workshop attendance yet.</p>';
                 }
             });
     }, 5000);
@@ -205,6 +264,19 @@ function removeHackerFromActivity(guestId, eventName) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ guest_id: guestId, event: eventName }),
+    })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.status === "error") alert(data.message);
+        });
+}
+
+function removeWorkshopAttendee(email, eventName) {
+    if (!confirm("Are you sure you want to remove " + email + " from " + eventName + "?")) return;
+    fetch("/remove_workshop_attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, event: eventName }),
     })
         .then(function (r) { return r.json(); })
         .then(function (data) {
