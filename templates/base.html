@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>{% block title %}SASEPass{% endblock %}</title>
     <meta name="description" content="SASEPass - SASEHacks Check-in System" />
-    <link rel="icon" href="{{ get_public_image_url('homeMascot.png') }}" type="image/x-icon" />
+    <link rel="icon" href="{{ get_public_image_url('home/homeMascot.png') }}" type="image/x-icon" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -40,7 +40,7 @@
     </script>
     <style>
         body {
-            background-image: url("{{ get_public_image_url('sponsorBackground.png') }}");
+            background-image: url("{{ get_public_image_url('sponsor/sponsorBackground.png') }}");
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
@@ -62,7 +62,7 @@
 
     <!-- Sponsor Mascot -->
     {% if request.endpoint != 'login' %}
-    <img src="{{ get_public_image_url('sponsorMascot.png') }}" alt="Sponsor Mascot"
+    <img src="{{ get_public_image_url('sponsor/sponsorMascot.png') }}" alt="Sponsor Mascot"
         class="fixed bottom-4 right-4 w-32 md:w-48 opacity-90 z-40 pointer-events-none drop-shadow-2xl" />
     {% endif %}
 </body>
