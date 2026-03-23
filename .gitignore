@@ -5,3 +5,7 @@ __pycache__/
 node_modules/
 .DS_Store
 CLAUDE.md
+
+# Don't push these lol it is messing with my language stats because of file size
+.venv/
+.vscode/
